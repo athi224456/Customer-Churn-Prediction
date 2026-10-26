@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer Churn Predictor</title>
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Arial;margin:0;background:#f1f5f9;color:#0f172a}
+header{background:#1e3a8a;color:#fff;padding:20px 32px}header h1{margin:0;font-size:22px}header p{margin:4px 0 0;opacity:.8;font-size:14px}
+main{max-width:1000px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:1fr 320px;gap:20px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:3px}
+select,input{width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
+button{margin-top:16px;width:100%;padding:12px;background:#2563eb;color:#fff;border:0;border-radius:8px;font-size:16px;cursor:pointer}button:hover{background:#1d4ed8}
+#res{text-align:center}.pct{font-size:56px;font-weight:700}.High{color:#dc2626}.Medium{color:#d97706}.Low{color:#16a34a}
+.bar{height:12px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin:10px 0}.bar div{height:100%;width:0;transition:.4s}
+table{width:100%;font-size:13px;border-collapse:collapse}td,th{padding:5px;border-bottom:1px solid #e2e8f0;text-align:left}
+</style></head><body>
+<header><h1>📉 Customer Churn Prediction</h1><p>Best model: {{ metrics.best_model }} · ROC-AUC {{ '%.3f'|format(metrics.results[metrics.best_model].roc_auc) }}</p></header>
+<main>
+<div class="card"><form id="f"><div class="grid">
+{% macro sel(n,opts) %}<div><label>{{n}}</label><select name="{{n}}">{% for o in opts %}<option>{{o}}</option>{% endfor %}</select></div>{% endmacro %}
+{{ sel('gender',['Male','Female']) }}{{ sel('SeniorCitizen',['0','1']) }}{{ sel('Partner',['Yes','No']) }}{{ sel('Dependents',['No','Yes']) }}
+<div><label>tenure (months)</label><input type="number" name="tenure" value="5" min="0" max="80"></div>
+{{ sel('PhoneService',['Yes','No']) }}{{ sel('MultipleLines',['No','Yes','No phone service']) }}
+{{ sel('InternetService',['Fiber optic','DSL','No']) }}
+{{ sel('OnlineSecurity',['No','Yes','No internet service']) }}{{ sel('OnlineBackup',['No','Yes','No internet service']) }}
+{{ sel('DeviceProtection',['No','Yes','No internet service']) }}{{ sel('TechSupport',['No','Yes','No internet service']) }}
+{{ sel('StreamingTV',['Yes','No','No internet service']) }}{{ sel('StreamingMovies',['Yes','No','No internet service']) }}
+{{ sel('Contract',['Month-to-month','One year','Two year']) }}{{ sel('PaperlessBilling',['Yes','No']) }}
+{{ sel('PaymentMethod',['Electronic check','Mailed check','Bank transfer (automatic)','Credit card (automatic)']) }}
+<div><label>MonthlyCharges</label><input type="number" step="0.01" name="MonthlyCharges" value="95.5"></div>
+<div><label>TotalCharges</label><input type="number" step="0.01" name="TotalCharges" value="477"></div>
+</div><button type="submit">Predict Churn</button></form></div>
+<div>
+<div class="card" id="res"><p style="color:#64748b">Fill the form and click Predict.</p></div>
+<div class="card" style="margin-top:20px"><b>Model comparison</b><table><tr><th>Model</th><th>AUC</th><th>F1</th></tr>
+{% for n,r in metrics.results.items() %}<tr><td>{{n}}</td><td>{{'%.3f'|format(r.roc_auc)}}</td><td>{{'%.3f'|format(r.f1)}}</td></tr>{% endfor %}</table></div>
+</div></main>
+<script>
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();
+const r=await (await fetch('/predict',{method:'POST',body:new FormData(e.target)})).json();
+const c={High:'#dc2626',Medium:'#d97706',Low:'#16a34a'}[r.risk];
+document.getElementById('res').innerHTML=`<div class="pct ${r.risk}">${r.probability}%</div><div>Churn probability</div><div class="bar"><div style="width:${r.probability}%;background:${c}"></div></div><h3 class="${r.risk}">${r.risk} Risk → ${r.label}</h3>`};
+</script></body></html>
