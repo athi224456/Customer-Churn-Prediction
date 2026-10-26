@@ -1,0 +1,25 @@
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+
+NUMERIC = ["tenure", "MonthlyCharges", "TotalCharges"]
+CATEGORICAL = ["gender", "SeniorCitizen", "Partner", "Dependents", "PhoneService", "MultipleLines",
+               "InternetService", "OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport",
+               "StreamingTV", "StreamingMovies", "Contract", "PaperlessBilling", "PaymentMethod"]
+TARGET = "Churn"
+
+def load_data(path):
+    df = pd.read_csv(path)
+    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")  # blanks in real Kaggle data
+    df["SeniorCitizen"] = df["SeniorCitizen"].astype(str)
+    df = df.drop(columns=["customerID"], errors="ignore").drop_duplicates()
+    df[TARGET] = (df[TARGET] == "Yes").astype(int)
+    return df
+
+def build_preprocessor():
+    num = Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler())])
+    cat = Pipeline([("imp", SimpleImputer(strategy="most_frequent")),
+                    ("oh", OneHotEncoder(handle_unknown="ignore"))])
+    return ColumnTransformer([("num", num, NUMERIC), ("cat", cat, CATEGORICAL)])
