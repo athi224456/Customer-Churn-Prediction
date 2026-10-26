@@ -1,0 +1,43 @@
+"""Generate a realistic synthetic Telco customer churn dataset.
+Replace data/telco_churn.csv with the real Kaggle 'Telco Customer Churn'
+dataset (same column names) to train on real data."""
+import numpy as np, pandas as pd, os
+
+def generate(n=7000, seed=42):
+    r = np.random.default_rng(seed)
+    gender = r.choice(["Male", "Female"], n)
+    senior = r.binomial(1, 0.16, n)
+    partner = r.choice(["Yes", "No"], n)
+    dependents = r.choice(["Yes", "No"], n, p=[0.3, 0.7])
+    tenure = np.clip(r.gamma(2.0, 18, n).astype(int), 1, 72)
+    phone = r.choice(["Yes", "No"], n, p=[0.9, 0.1])
+    multi = np.where(phone == "No", "No phone service", r.choice(["Yes", "No"], n))
+    internet = r.choice(["DSL", "Fiber optic", "No"], n, p=[0.34, 0.44, 0.22])
+    def addon(p=0.4):
+        return np.where(internet == "No", "No internet service", r.choice(["Yes", "No"], n, p=[p, 1 - p]))
+    sec, backup, protect, tech, tv, movies = addon(.35), addon(.4), addon(.4), addon(.35), addon(.45), addon(.45)
+    contract = r.choice(["Month-to-month", "One year", "Two year"], n, p=[0.55, 0.21, 0.24])
+    paperless = r.choice(["Yes", "No"], n, p=[0.6, 0.4])
+    payment = r.choice(["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"], n)
+    base = np.select([internet == "DSL", internet == "Fiber optic"], [45, 75], 20)
+    monthly = np.round(base + 5 * ((tv == "Yes") + (movies == "Yes") + (backup == "Yes") + (protect == "Yes")) + r.normal(0, 4, n), 2).clip(18.25)
+    total = np.round(monthly * tenure * r.uniform(0.95, 1.05, n), 2)
+
+    z = (-0.8 + 1.1 * (contract == "Month-to-month") - 1.0 * (contract == "Two year")
+         + 0.7 * (internet == "Fiber optic") + 0.5 * (payment == "Electronic check")
+         + 0.3 * senior + 0.25 * (paperless == "Yes") - 0.035 * tenure + 0.012 * (monthly - 65)
+         - 0.4 * (sec == "Yes") - 0.4 * (tech == "Yes") - 0.2 * (partner == "Yes") + r.normal(0, 0.6, n))
+    churn = np.where(r.random(n) < 1 / (1 + np.exp(-z)), "Yes", "No")
+
+    return pd.DataFrame({
+        "customerID": [f"{1000+i}-CUST" for i in range(n)],
+        "gender": gender, "SeniorCitizen": senior, "Partner": partner, "Dependents": dependents,
+        "tenure": tenure, "PhoneService": phone, "MultipleLines": multi, "InternetService": internet,
+        "OnlineSecurity": sec, "OnlineBackup": backup, "DeviceProtection": protect, "TechSupport": tech,
+        "StreamingTV": tv, "StreamingMovies": movies, "Contract": contract, "PaperlessBilling": paperless,
+        "PaymentMethod": payment, "MonthlyCharges": monthly, "TotalCharges": total, "Churn": churn})
+
+if __name__ == "__main__":
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telco_churn.csv")
+    df = generate(); df.to_csv(out, index=False)
+    print(f"Saved {len(df)} rows -> {out}  | churn rate: {(df.Churn=='Yes').mean():.1%}")
