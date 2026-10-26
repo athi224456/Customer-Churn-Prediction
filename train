@@ -1,0 +1,71 @@
+"""Train & compare models, save the best one, metrics and plots."""
+import os, sys, json, joblib
+import numpy as np, matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
+                             confusion_matrix, ConfusionMatrixDisplay, RocCurveDisplay, classification_report)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from preprocess import load_data, build_preprocessor, NUMERIC, CATEGORICAL, TARGET
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA = os.path.join(ROOT, "data", "telco_churn.csv")
+if not os.path.exists(DATA):
+    sys.path.insert(0, os.path.join(ROOT, "data")); import generate_data
+    generate_data.generate().to_csv(DATA, index=False)
+
+df = load_data(DATA)
+X, y = df[NUMERIC + CATEGORICAL], df[TARGET]
+Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000, class_weight="balanced"),
+    "Random Forest": RandomForestClassifier(n_estimators=300, max_depth=10, class_weight="balanced", random_state=42, n_jobs=-1),
+    "Gradient Boosting": GradientBoostingClassifier(random_state=42),
+}
+cv = StratifiedKFold(5, shuffle=True, random_state=42)
+results, fitted = {}, {}
+for name, clf in models.items():
+    pipe = Pipeline([("prep", build_preprocessor()), ("clf", clf)])
+    cv_auc = cross_val_score(pipe, Xtr, ytr, cv=cv, scoring="roc_auc").mean()
+    pipe.fit(Xtr, ytr)
+    pred, proba = pipe.predict(Xte), pipe.predict_proba(Xte)[:, 1]
+    results[name] = {"accuracy": accuracy_score(yte, pred), "precision": precision_score(yte, pred),
+                     "recall": recall_score(yte, pred), "f1": f1_score(yte, pred),
+                     "roc_auc": roc_auc_score(yte, proba), "cv_roc_auc": cv_auc}
+    fitted[name] = pipe
+    print(f"{name:22s} " + "  ".join(f"{k}={v:.3f}" for k, v in results[name].items()))
+
+best = max(results, key=lambda k: results[k]["roc_auc"])
+pipe = fitted[best]
+print(f"\nBest model: {best}\n", classification_report(yte, pipe.predict(Xte), target_names=["Stay", "Churn"]))
+
+os.makedirs(os.path.join(ROOT, "models"), exist_ok=True); os.makedirs(os.path.join(ROOT, "outputs"), exist_ok=True)
+joblib.dump(pipe, os.path.join(ROOT, "models", "churn_model.joblib"))
+json.dump({"best_model": best, "results": results}, open(os.path.join(ROOT, "outputs", "metrics.json"), "w"), indent=2)
+
+out = lambda f: os.path.join(ROOT, "outputs", f)
+fig, ax = plt.subplots(figsize=(5, 4)); ConfusionMatrixDisplay(confusion_matrix(yte, pipe.predict(Xte)), display_labels=["Stay", "Churn"]).plot(ax=ax, cmap="Blues")
+ax.set_title(f"Confusion Matrix - {best}"); plt.tight_layout(); plt.savefig(out("confusion_matrix.png"), dpi=150); plt.close()
+
+fig, ax = plt.subplots(figsize=(6, 5))
+for n, p in fitted.items(): RocCurveDisplay.from_estimator(p, Xte, yte, ax=ax, name=n)
+ax.plot([0, 1], [0, 1], "k--"); ax.set_title("ROC Curves"); plt.tight_layout(); plt.savefig(out("roc_curves.png"), dpi=150); plt.close()
+
+clf, names = pipe.named_steps["clf"], pipe.named_steps["prep"].get_feature_names_out()
+imp = clf.feature_importances_ if hasattr(clf, "feature_importances_") else np.abs(clf.coef_[0])
+top = np.argsort(imp)[-15:]
+fig, ax = plt.subplots(figsize=(7, 5)); ax.barh([n.split("__")[1] for n in names[top]], imp[top], color="#2563eb")
+ax.set_title("Top 15 Features Driving Churn"); plt.tight_layout(); plt.savefig(out("feature_importance.png"), dpi=150); plt.close()
+
+fig, ax = plt.subplots(1, 3, figsize=(13, 3.6))
+df.groupby("Contract")[TARGET].mean().plot.bar(ax=ax[0], color="#ef4444", title="Churn rate by Contract")
+df.groupby("InternetService")[TARGET].mean().plot.bar(ax=ax[1], color="#f59e0b", title="Churn rate by Internet")
+df.groupby(df.tenure // 12 * 12)[TARGET].mean().plot.bar(ax=ax[2], color="#10b981", title="Churn rate by Tenure (months)")
+for a in ax: a.set_xlabel(""); a.tick_params(axis="x", rotation=20)
+plt.tight_layout(); plt.savefig(out("eda_churn_rates.png"), dpi=150); plt.close()
+print("Saved model + plots.")
